@@ -100,18 +100,24 @@ def train_model(
                 with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=amp):
                     masks_pred = model(images)
                     if model.n_classes == 1:
+                        #need squeeze because single class input&output image is B,1,H,W-->B,H,W
                         loss = criterion(masks_pred.squeeze(1), true_masks.float())
+                        #custom diceloss didnt apply sigmoid
+                        # no need to form one hot since only 1 class
                         loss += dice_loss(F.sigmoid(masks_pred.squeeze(1)), true_masks.float(), multiclass=False)
                     else:
+                        #B,C,H,W the output logits would undergo softmax inside CE loss
                         loss = criterion(masks_pred, true_masks)
                         loss += dice_loss(
+                            # applied softmax to pred for Dice loss cal: B,C,H,W
                             F.softmax(masks_pred, dim=1).float(),
+                            # only onehot vector done to ground truth mask
                             F.one_hot(true_masks, model.n_classes).permute(0, 3, 1, 2).float(),
                             multiclass=True
                         )
 
                 optimizer.zero_grad(set_to_none=True)
-                grad_scaler.scale(loss).backward()
+                grad_scaler.scale(loss).backward()#same as normal loss.backward if amp False
                 torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clipping)
                 grad_scaler.step(optimizer)
                 grad_scaler.update()
@@ -131,6 +137,7 @@ def train_model(
                 if division_step > 0:
                     if global_step % division_step == 0:
                         histograms = {}
+                        #this is to check the health of weigth and grad if they are NaN
                         for tag, value in model.named_parameters():
                             tag = tag.replace('/', '.')
                             if not (torch.isinf(value) | torch.isnan(value)).any():
@@ -161,6 +168,7 @@ def train_model(
         if save_checkpoint:
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
             state_dict = model.state_dict()
+            #auxiliary info needed to be erased before loading parameters
             state_dict['mask_values'] = dataset.mask_values
             torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
             logging.info(f'Checkpoint {epoch} saved!')

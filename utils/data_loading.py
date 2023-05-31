@@ -23,14 +23,14 @@ def load_image(filename):
         return Image.open(filename)
 
 
-def unique_mask_values(idx, mask_dir, mask_suffix):
-    mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0]
+def unique_mask_values(idx, mask_dir, mask_suffix): #idx here refer to one file inputted only
+    mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0] #idx is not with any file format info
     mask = np.asarray(load_image(mask_file))
     if mask.ndim == 2:
-        return np.unique(mask)
+        return np.unique(mask) #to extract unique class along the whole map e.g. 0,1,2,3
     elif mask.ndim == 3:
-        mask = mask.reshape(-1, mask.shape[-1])
-        return np.unique(mask, axis=0)
+        mask = mask.reshape(-1, mask.shape[-1]) #reshape to 2D HWC --> H*W C
+        return np.unique(mask, axis=0) #to extract array which is channel wise unique array
     else:
         raise ValueError(f'Loaded masks should have 2 or 3 dimensions, found {mask.ndim}')
 
@@ -42,9 +42,10 @@ class BasicDataset(Dataset):
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
         self.mask_suffix = mask_suffix
-
+        #the file will only be done with splittext if it exists and its name not start with "."
+        #the splittext help to divide the filename and its suffix i.e. "filename","txt"
         self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
-        if not self.ids:
+        if not self.ids: #ids contains filename
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
 
         logging.info(f'Creating dataset with {len(self.ids)} examples')
@@ -53,7 +54,9 @@ class BasicDataset(Dataset):
             unique = list(tqdm(
                 p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
                 total=len(self.ids)
-            ))
+            )) #it returns a list of single array or arrays [[0,1,2,3],... ]or [[[0,1,2],[1,2,3]],...]
+
+        #concat all unique arrays found from each mask file and further extract unique arrays among whole mask datasets
 
         self.mask_values = list(sorted(np.unique(np.concatenate(unique), axis=0).tolist()))
         logging.info(f'Unique mask values: {self.mask_values}')
@@ -61,31 +64,32 @@ class BasicDataset(Dataset):
     def __len__(self):
         return len(self.ids)
 
-    @staticmethod
+    @staticmethod #mask_values are the unique mask values
     def preprocess(mask_values, pil_img, scale, is_mask):
         w, h = pil_img.size
         newW, newH = int(scale * w), int(scale * h)
         assert newW > 0 and newH > 0, 'Scale is too small, resized images would have no pixel'
+        # mask and img will be resized differently
+        # pil_image object default resize
         pil_img = pil_img.resize((newW, newH), resample=Image.NEAREST if is_mask else Image.BICUBIC)
-        img = np.asarray(pil_img)
+        img = np.asarray(pil_img) # expect to be H,W or H,W,C
 
         if is_mask:
-            mask = np.zeros((newH, newW), dtype=np.int64)
+            mask = np.zeros((newH, newW), dtype=np.int64) # will be new H,W zero map
             for i, v in enumerate(mask_values):
                 if img.ndim == 2:
                     mask[img == v] = i
                 else:
-                    mask[(img == v).all(-1)] = i
-
+                    mask[(img == v).all(-1)] = i   #check all channel-wise pixels are all True (i.e. equal to that class)
             return mask
 
         else:
             if img.ndim == 2:
-                img = img[np.newaxis, ...]
+                img = img[np.newaxis, ...] #this is to add in one more col H,W--> 1,H,W
             else:
-                img = img.transpose((2, 0, 1))
+                img = img.transpose((2, 0, 1)) #if RGB --> HWC to CHW
 
-            if (img > 1).any():
+            if (img > 1).any(): # make become [0,1]
                 img = img / 255.0
 
             return img
