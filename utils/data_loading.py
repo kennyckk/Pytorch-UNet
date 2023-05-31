@@ -1,4 +1,6 @@
 import logging
+import os
+
 import numpy as np
 import torch
 from PIL import Image
@@ -23,8 +25,11 @@ def load_image(filename):
         return Image.open(filename)
 
 
-def unique_mask_values(idx, mask_dir, mask_suffix): #idx here refer to one file inputted only
-    mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0] #idx is not with any file format info
+def unique_mask_values(idx, mask_dir, mask_suffix,mask_limit=False): #idx here refer to one file inputted only
+    if mask_limit:
+        mask_file= list(mask_dir.glob(idx + '.*'))[0] #the mask file will already have the suffix
+    else:
+        mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0] #idx is not with any file format info
     mask = np.asarray(load_image(mask_file))
     if mask.ndim == 2:
         return np.unique(mask) #to extract unique class along the whole map e.g. 0,1,2,3
@@ -36,7 +41,7 @@ def unique_mask_values(idx, mask_dir, mask_suffix): #idx here refer to one file 
 
 
 class BasicDataset(Dataset):
-    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = ''):
+    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = '',mask_limit=False):
         self.images_dir = Path(images_dir)
         self.mask_dir = Path(mask_dir)
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
@@ -44,7 +49,11 @@ class BasicDataset(Dataset):
         self.mask_suffix = mask_suffix
         #the file will only be done with splittext if it exists and its name not start with "."
         #the splittext help to divide the filename and its suffix i.e. "filename","txt"
-        self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
+        if mask_limit: #custom for mask ground truth is limiting the training imgs
+            self.ids=[splitext(file)[0] for file in listdir(mask_dir) if isfile(join(mask_dir,file)) and not file.startswith('.')]
+        else:
+            self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
+
         if not self.ids: #ids contains filename
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
 
@@ -119,3 +128,16 @@ class BasicDataset(Dataset):
 class CarvanaDataset(BasicDataset):
     def __init__(self, images_dir, mask_dir, scale=1):
         super().__init__(images_dir, mask_dir, scale, mask_suffix='_mask')
+
+if __name__ =="__main__":
+    mask_dir=Path("../data/masks/")
+    mask_suffix="man_seg"
+    ids=os.listdir(mask_dir)
+    _=ids.pop(0)
+    ids=[splitext(id)[0] for id in ids]
+    print(ids)
+    res=[]
+    for id in ids:
+        res.append(unique_mask_values(id, mask_dir, mask_suffix, mask_limit=True))
+    res=np.concatenate(list(res))
+    print(np.unique(res,axis=0))
