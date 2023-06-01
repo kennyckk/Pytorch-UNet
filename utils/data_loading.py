@@ -41,18 +41,22 @@ def unique_mask_values(idx, mask_dir, mask_suffix,mask_limit=False): #idx here r
 
 
 class BasicDataset(Dataset):
-    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = '',mask_limit=False):
+    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = '',img_prefix:str='',mask_limit=False):
         self.images_dir = Path(images_dir)
         self.mask_dir = Path(mask_dir)
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
         self.mask_suffix = mask_suffix
+        self.img_prefix=img_prefix
+        self.mask_limit=mask_limit
         #the file will only be done with splittext if it exists and its name not start with "."
         #the splittext help to divide the filename and its suffix i.e. "filename","txt"
-        if mask_limit: #custom for mask ground truth is limiting the training imgs
+        if self.mask_limit: #custom for mask ground truth is limiting the training imgs
             self.ids=[splitext(file)[0] for file in listdir(mask_dir) if isfile(join(mask_dir,file)) and not file.startswith('.')]
+            partial_fnc = partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix,mask_limit=True)
         else:
             self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
+            partial_fnc=partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix)
 
         if not self.ids: #ids contains filename
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
@@ -61,7 +65,7 @@ class BasicDataset(Dataset):
         logging.info('Scanning mask files to determine unique values')
         with Pool() as p:
             unique = list(tqdm(
-                p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
+                p.imap(partial_fnc, self.ids),
                 total=len(self.ids)
             )) #it returns a list of single array or arrays [[0,1,2,3],... ]or [[[0,1,2],[1,2,3]],...]
 
@@ -104,9 +108,14 @@ class BasicDataset(Dataset):
             return img
 
     def __getitem__(self, idx):
-        name = self.ids[idx]
-        mask_file = list(self.mask_dir.glob(name + self.mask_suffix + '.*'))
-        img_file = list(self.images_dir.glob(name + '.*'))
+        name = self.ids[idx] #if the mask_limit, the file name is e.g. man_seg001
+        if self.mask_limit:
+            mask_file = list(self.mask_dir.glob(name + '.*'))
+            # the menseg001 --> 001--> t001.*
+            img_file=list(self.images_dir.glob(self.img_prefix+name.replace(self.mask_suffix,"") + '.*'))
+        else:
+            mask_file = list(self.mask_dir.glob(name + self.mask_suffix + '.*'))
+            img_file = list(self.images_dir.glob(name + '.*'))
 
         assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
         assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
@@ -116,6 +125,7 @@ class BasicDataset(Dataset):
         assert img.size == mask.size, \
             f'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
+        #should not have any impact when having mask_limit
         img = self.preprocess(self.mask_values, img, self.scale, is_mask=False)
         mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True)
 
@@ -129,15 +139,32 @@ class CarvanaDataset(BasicDataset):
     def __init__(self, images_dir, mask_dir, scale=1):
         super().__init__(images_dir, mask_dir, scale, mask_suffix='_mask')
 
+class PhC_U373Dataset(BasicDataset):
+    def __init__(self, images_dir, mask_dir, scale=1):
+        super().__init__(images_dir, mask_dir, scale,mask_suffix='man_seg',img_prefix='t',mask_limit=True)
+
 if __name__ =="__main__":
-    mask_dir=Path("../data/masks/")
-    mask_suffix="man_seg"
-    ids=os.listdir(mask_dir)
-    _=ids.pop(0)
-    ids=[splitext(id)[0] for id in ids]
-    print(ids)
-    res=[]
-    for id in ids:
-        res.append(unique_mask_values(id, mask_dir, mask_suffix, mask_limit=True))
-    res=np.concatenate(list(res))
-    print(np.unique(res,axis=0))
+    # mask_dir=Path("../data/masks/")
+    # mask_suffix="man_seg"
+    # ids=os.listdir(mask_dir)
+    # _=ids.pop(0)
+    # ids=[splitext(id)[0] for id in ids]
+    # print(ids)
+    # res=[]
+    # for id in ids:
+    #     res.append(unique_mask_values(id, mask_dir, mask_suffix, mask_limit=True))
+    # res=np.concatenate(list(res))
+    # print(np.unique(res,axis=0))
+
+    #test with image name stripping
+    # img_dir= Path("../data/imgs/")
+    # prefix='t'
+    # suffix='man_seg'
+    # maskfile='man_seg001'
+    # maskfile=maskfile.replace(suffix,"")
+    # test=list(img_dir.glob(prefix+maskfile+'.*'))
+    # print(test)
+
+    #test with the datasets
+    dataset1= PhC_U373Dataset('../data/imgs/01/','../data/masks/01/', )
+    print(next(iter(dataset1)))
