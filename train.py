@@ -10,13 +10,13 @@ import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 from pathlib import Path
 from torch import optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split,ConcatDataset
 from tqdm import tqdm
 
 import wandb
 from evaluate import evaluate
 from unet import UNet
-from utils.data_loading import BasicDataset, CarvanaDataset
+from utils.data_loading import BasicDataset, CarvanaDataset, PhC_U373Dataset
 from utils.dice_score import dice_loss
 
 dir_img = Path('./data/imgs/')
@@ -37,12 +37,19 @@ def train_model(
         weight_decay: float = 1e-8,
         momentum: float = 0.999,
         gradient_clipping: float = 1.0,
+        phc_data:bool = True
 ):
     # 1. Create dataset
-    try:
-        dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
-    except (AssertionError, RuntimeError, IndexError):
-        dataset = BasicDataset(dir_img, dir_mask, img_scale)
+    if phc_data:
+        dataset1= PhC_U373Dataset(os.path.join(dir_img,"01"),os.path.join(dir_mask,"01"),img_scale)
+        dataset2= PhC_U373Dataset(os.path.join(dir_img,"02"),os.path.join(dir_mask,"02"),img_scale)
+        # since have 2 folders containing different datasets
+        dataset=ConcatDataset([dataset1,dataset2])
+    else:
+        try:
+            dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
+        except (AssertionError, RuntimeError, IndexError):
+            dataset = BasicDataset(dir_img, dir_mask, img_scale)
 
     # 2. Split into train / validation partitions
     n_val = int(len(dataset) * val_percent)
@@ -169,7 +176,7 @@ def train_model(
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
             state_dict = model.state_dict()
             #auxiliary info needed to be erased before loading parameters
-            state_dict['mask_values'] = dataset.mask_values
+            state_dict['mask_values'] = dataset.mask_values if not phc_data else dataset1.mask_values
             torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
             logging.info(f'Checkpoint {epoch} saved!')
 
@@ -186,7 +193,7 @@ def get_args():
                         help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-    parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
+    parser.add_argument('--classes', '-c', type=int, default=8, help='Number of classes')
 
     return parser.parse_args()
 
@@ -201,7 +208,7 @@ if __name__ == '__main__':
     # Change here to adapt to your data
     # n_channels=3 for RGB images
     # n_classes is the number of probabilities you want to get per pixel
-    model = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    model = UNet(n_channels=1, n_classes=args.classes, bilinear=args.bilinear)# 1 for phc data
     model = model.to(memory_format=torch.channels_last)
 
     logging.info(f'Network:\n'

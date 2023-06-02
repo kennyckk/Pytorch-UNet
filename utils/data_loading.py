@@ -144,27 +144,14 @@ class PhC_U373Dataset(BasicDataset):
         super().__init__(images_dir, mask_dir, scale,mask_suffix='man_seg',img_prefix='t',mask_limit=True)
 
 if __name__ =="__main__":
-    # mask_dir=Path("../data/masks/")
-    # mask_suffix="man_seg"
-    # ids=os.listdir(mask_dir)
-    # _=ids.pop(0)
-    # ids=[splitext(id)[0] for id in ids]
-    # print(ids)
-    # res=[]
-    # for id in ids:
-    #     res.append(unique_mask_values(id, mask_dir, mask_suffix, mask_limit=True))
-    # res=np.concatenate(list(res))
-    # print(np.unique(res,axis=0))
-
-    #test with image name stripping
-    # img_dir= Path("../data/imgs/")
-    # prefix='t'
-    # suffix='man_seg'
-    # maskfile='man_seg001'
-    # maskfile=maskfile.replace(suffix,"")
-    # test=list(img_dir.glob(prefix+maskfile+'.*'))
-    # print(test)
-
-    #test with the datasets
-    dataset1= PhC_U373Dataset('../data/imgs/01/','../data/masks/01/', )
-    print(next(iter(dataset1)))
+    mask_dir = Path("../data/masks/01")
+    mask_suffix="man_seg"
+    ids=os.listdir(mask_dir)
+    _=ids.pop(0)
+    ids=[splitext(id)[0] for id in ids]
+    print(ids)
+    res=[]
+    for id in ids:
+        res.append(unique_mask_values(id, mask_dir, mask_suffix, mask_limit=True))
+    res=np.concatenate(list(res))
+    print(np.unique(res,axis=0))
