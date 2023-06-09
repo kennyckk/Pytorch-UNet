@@ -18,8 +18,8 @@ def predict_img(net,
                 scale_factor=1,
                 out_threshold=0.5):
     net.eval()
-    img = torch.from_numpy(BasicDataset.preprocess(None, full_img, scale_factor, is_mask=False))
-    img = img.unsqueeze(0)
+    img = torch.from_numpy(BasicDataset.preprocess(None, full_img, scale_factor, is_mask=False)) #can remain unchanged.
+    img = img.unsqueeze(0) # to make CHW become BCHW
     img = img.to(device=device, dtype=torch.float32)
 
     with torch.no_grad():
@@ -47,7 +47,8 @@ def get_args():
     parser.add_argument('--scale', '-s', type=float, default=0.5,
                         help='Scale factor for the input images')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-    parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
+    parser.add_argument('--classes', '-c', type=int, default=8, help='Number of classes')
+    parser.add_argument('--input_channels','-in_c',type=int,default=1, help='number of channels of input img')
     
     return parser.parse_args()
 
@@ -73,6 +74,9 @@ def mask_to_image(mask: np.ndarray, mask_values):
     for i, v in enumerate(mask_values):
         out[mask == i] = v
 
+    #to make multi class have grey scale image saved
+    out=np.uint8((out/v)*255)
+
     return Image.fromarray(out)
 
 
@@ -81,9 +85,9 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
     in_files = args.input
-    out_files = get_output_filenames(args)
+    out_files = get_output_filenames(args) # can be list or single file
 
-    net = UNet(n_channels=3, n_classes=args.classes, bilinear=args.bilinear)
+    net = UNet(n_channels=args.input_channels, n_classes=args.classes, bilinear=args.bilinear)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Loading model {args.model}')
@@ -100,6 +104,7 @@ if __name__ == '__main__':
         logging.info(f'Predicting image {filename} ...')
         img = Image.open(filename)
 
+        # will return an H,W output mask with predicted class [0,1,2,3,4...]
         mask = predict_img(net=net,
                            full_img=img,
                            scale_factor=args.scale,
@@ -108,7 +113,7 @@ if __name__ == '__main__':
 
         if not args.no_save:
             out_filename = out_files[i]
-            result = mask_to_image(mask, mask_values)
+            result = mask_to_image(mask, mask_values) # will return an H,W output mask with predicted class [1,2,3,4,5...]
             result.save(out_filename)
             logging.info(f'Mask saved to {out_filename}')
 

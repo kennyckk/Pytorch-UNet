@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 
 
-def plot_img_and_mask(img, mask):
+def plot_img_and_mask(img, mask, folder='./predicted_mask'):
     classes = mask.max() + 1
     fig, ax = plt.subplots(1, classes + 1)
     ax[0].set_title('Input image')
@@ -10,4 +10,5 @@ def plot_img_and_mask(img, mask):
         ax[i + 1].set_title(f'Mask (class {i + 1})')
         ax[i + 1].imshow(mask == i)
     plt.xticks([]), plt.yticks([])
+    plt.savefig(folder + '/class_map.jpg')
     plt.show()

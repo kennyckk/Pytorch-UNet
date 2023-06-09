@@ -7,3 +7,5 @@ checkpoints/
 venv/
 .idea/
 wandb/
+scripts/predict_script.txt
+predicted_mask/
