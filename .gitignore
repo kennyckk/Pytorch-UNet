@@ -9,3 +9,4 @@ venv/
 wandb/
 scripts/predict_script.txt
 predicted_mask/
+test.py

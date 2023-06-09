@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def plot_img_and_mask(img, mask, folder='./predicted_mask'):
     classes = mask.max() + 1
-    fig, ax = plt.subplots(1, classes + 1)
+    fig, ax = plt.subplots(1, classes + 1,figsize=(20,10))
     ax[0].set_title('Input image')
     ax[0].imshow(img)
     for i in range(classes):

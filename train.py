@@ -16,7 +16,7 @@ from tqdm import tqdm
 import wandb
 from evaluate import evaluate
 from unet import UNet
-from utils.data_loading import BasicDataset, CarvanaDataset, PhC_U373Dataset
+from utils.data_loading import BasicDataset, CarvanaDataset, unified_dataset,aug_transformation,ApplyAugmentation
 from utils.dice_score import dice_loss
 
 dir_img = Path('./data/imgs/')
@@ -37,14 +37,13 @@ def train_model(
         weight_decay: float = 1e-8,
         momentum: float = 0.999,
         gradient_clipping: float = 1.0,
-        phc_data:bool = True
+        phc_data:bool = True,
+        aug_size=0
 ):
     # 1. Create dataset
     if phc_data:
-        dataset1= PhC_U373Dataset(os.path.join(dir_img,"01"),os.path.join(dir_mask,"01"),img_scale)
-        dataset2= PhC_U373Dataset(os.path.join(dir_img,"02"),os.path.join(dir_mask,"02"),img_scale)
-        # since have 2 folders containing different datasets
-        dataset=ConcatDataset([dataset1,dataset2])
+        #get the PHC datasets which was divided into separate folders
+        dataset,mask_values=unified_dataset(dir_img,dir_mask,img_scale,get_mask_val=True)
     else:
         try:
             dataset = CarvanaDataset(dir_img, dir_mask, img_scale)
@@ -55,6 +54,14 @@ def train_model(
     n_val = int(len(dataset) * val_percent)
     n_train = len(dataset) - n_val
     train_set, val_set = random_split(dataset, [n_train, n_val], generator=torch.Generator().manual_seed(0))
+    # 2.1 Data Augmentation to traindataset
+    if aug_size>0:
+        # make original training concated dataset go back to normal dataset
+        train_set_list = [ApplyAugmentation(train_set,transforms=None)] #without augmentation
+        for _ in range(aug_size):
+            train_set_list.append(ApplyAugmentation(train_set,transforms=aug_transformation(rotate=0.5, shift_p=0.5,shift_wh=(0.1,0.1))))
+
+        train_set= ConcatDataset(train_set_list)
 
     # 3. Create data loaders
     loader_args = dict(batch_size=batch_size, num_workers=os.cpu_count(), pin_memory=True)
@@ -176,7 +183,7 @@ def train_model(
             Path(dir_checkpoint).mkdir(parents=True, exist_ok=True)
             state_dict = model.state_dict()
             #auxiliary info needed to be erased before loading parameters
-            state_dict['mask_values'] = dataset.mask_values if not phc_data else dataset1.mask_values
+            state_dict['mask_values'] = dataset.mask_values if not phc_data else mask_values
             torch.save(state_dict, str(dir_checkpoint / 'checkpoint_epoch{}.pth'.format(epoch)))
             logging.info(f'Checkpoint {epoch} saved!')
 
@@ -194,6 +201,7 @@ def get_args():
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
     parser.add_argument('--classes', '-c', type=int, default=8, help='Number of classes')
+    parser.add_argument('--augment-size', '-a', dest='aug',type=int, default=3, help='number of augmentation to original dataset')
 
     return parser.parse_args()
 
@@ -232,7 +240,8 @@ if __name__ == '__main__':
             device=device,
             img_scale=args.scale,
             val_percent=args.val / 100,
-            amp=args.amp
+            amp=args.amp,
+            aug_size=args.aug
         )
     except torch.cuda.OutOfMemoryError:
         logging.error('Detected OutOfMemoryError! '
@@ -248,5 +257,6 @@ if __name__ == '__main__':
             device=device,
             img_scale=args.scale,
             val_percent=args.val / 100,
-            amp=args.amp
+            amp=args.amp,
+            aug_size=args.aug
         )
