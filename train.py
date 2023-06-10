@@ -59,7 +59,7 @@ def train_model(
         # make original training concated dataset go back to normal dataset
         train_set_list = [ApplyAugmentation(train_set,transforms=None)] #without augmentation
         for _ in range(aug_size):
-            train_set_list.append(ApplyAugmentation(train_set,transforms=aug_transformation(rotate=0.5, shift_p=0.5,shift_wh=(0.1,0.1))))
+            train_set_list.append(ApplyAugmentation(train_set,transforms=aug_transformation(deform=0.3,rotate=0.3, shift_p=0.3,shift_wh=(0.1,0.1))))
 
         train_set= ConcatDataset(train_set_list)
 
@@ -69,7 +69,7 @@ def train_model(
     val_loader = DataLoader(val_set, shuffle=False, drop_last=True, **loader_args)
 
     # (Initialize logging)
-    experiment = wandb.init(project='U-Net', resume='allow', anonymous='must')
+    experiment = wandb.init(project='U-Net', resume='allow', anonymous='allow')
     experiment.config.update(
         dict(epochs=epochs, batch_size=batch_size, learning_rate=learning_rate,
              val_percent=val_percent, save_checkpoint=save_checkpoint, img_scale=img_scale, amp=amp)
@@ -192,7 +192,7 @@ def train_model(
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
-    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=50, help='Number of epochs')
+    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=20, help='Number of epochs')
     parser.add_argument('--batch-size', '-b', dest='batch_size', metavar='B', type=int, default=1, help='Batch size')
     parser.add_argument('--learning-rate', '-l', metavar='LR', type=float, default=1e-5,
                         help='Learning rate', dest='lr')
@@ -202,8 +202,8 @@ def get_args():
                         help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-    parser.add_argument('--classes', '-c', type=int, default=8, help='Number of classes')
-    parser.add_argument('--augment-size', '-a', dest='aug',type=int, default=5, help='number of augmentation to original dataset')
+    parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
+    parser.add_argument('--augment-size', '-a', dest='aug',type=int, default=9, help='number of augmentation to original dataset')
 
     return parser.parse_args()
 

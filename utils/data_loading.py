@@ -17,20 +17,20 @@ import torchvision.transforms as T
 import elasticdeform.torch as etorch
 
 def unified_dataset(dir_img,dir_mask,img_scale,get_mask_val=False):
-    dataset1 = PhC_U373Dataset(os.path.join(dir_img, "01"), os.path.join(dir_mask, "01"), img_scale)
-    dataset2 = PhC_U373Dataset(os.path.join(dir_img, "02"), os.path.join(dir_mask, "02"), img_scale)
+    dataset1 = PhC_U373Dataset(os.path.join(dir_img, "01"), os.path.join(dir_mask, "01"), img_scale,binary=True)
+    dataset2 = PhC_U373Dataset(os.path.join(dir_img, "02"), os.path.join(dir_mask, "02"), img_scale,binary=True)
 
     #get the number of values
     mask_vals= dataset1.mask_values
     # since have 2 folders containing different datasets
-    dataset = ConcatDataset([dataset1, dataset2])
+    dataset = ConcatDataset([dataset1,dataset2])
 
     return dataset if not get_mask_val else dataset, mask_vals
-def aug_transformation(rotate=0.5, shift_p=0.5,shift_wh:tuple=(0.1,0.1)):
+def aug_transformation(deform=0.5,rotate=0.5, shift_p=0.5,shift_wh:tuple=(0.1,0.1)):
     transform_list=[]
 
     # elastic transformation
-    transform_list.append(Elastic_Deformation(p=1)) #the probability of having this aug is emphasized
+    transform_list.append(Elastic_Deformation(p=deform)) #the probability of having this aug is emphasized
     #rotation invariant
     transform_list.append(T.RandomApply(torch.nn.ModuleList([T.RandomRotation(180)]),p=rotate))
     #shift invarant no rotation only xy translation of maximum 30% of width/height
@@ -63,7 +63,7 @@ def unique_mask_values(idx, mask_dir, mask_suffix,mask_limit=False): #idx here r
         raise ValueError(f'Loaded masks should have 2 or 3 dimensions, found {mask.ndim}')
 
 class BasicDataset(Dataset):
-    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = '',img_prefix:str='',mask_limit=False):
+    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = '',img_prefix:str='',mask_limit=False,binary=False):
         self.images_dir = Path(images_dir)
         self.mask_dir = Path(mask_dir)
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
@@ -71,6 +71,7 @@ class BasicDataset(Dataset):
         self.mask_suffix = mask_suffix
         self.img_prefix=img_prefix
         self.mask_limit=mask_limit
+        self.binary=binary
         #the file will only be done with splittext if it exists and its name not start with "."
         #the splittext help to divide the filename and its suffix i.e. "filename","txt"
         if self.mask_limit: #custom for mask ground truth is limiting the training imgs
@@ -100,7 +101,7 @@ class BasicDataset(Dataset):
         return len(self.ids)
 
     @staticmethod #mask_values are the unique mask values
-    def preprocess(mask_values, pil_img, scale, is_mask):
+    def preprocess(mask_values, pil_img, scale, is_mask,binary=False):
         w, h = pil_img.size
         newW, newH = int(scale * w), int(scale * h)
         assert newW > 0 and newH > 0, 'Scale is too small, resized images would have no pixel'
@@ -111,11 +112,14 @@ class BasicDataset(Dataset):
 
         if is_mask:
             mask = np.zeros((newH, newW), dtype=np.int64) # will be new H,W zero map
-            for i, v in enumerate(mask_values):
-                if img.ndim == 2:
-                    mask[img == v] = i
-                else:
-                    mask[(img == v).all(-1)] = i   #check all channel-wise pixels are all True (i.e. equal to that class)
+            if not binary: # for multiclass
+                for i, v in enumerate(mask_values):
+                    if img.ndim == 2:
+                        mask[img == v] = i
+                    else:
+                        mask[(img == v).all(-1)] = i   #check all channel-wise pixels are all True (i.e. equal to that class)
+            else: #for 2 class only
+                mask[img!=0]=1
             return mask
 
         else:
@@ -148,8 +152,8 @@ class BasicDataset(Dataset):
             f'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
         #should not have any impact when having mask_limit
-        img = self.preprocess(self.mask_values, img, self.scale, is_mask=False)
-        mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True)
+        img = self.preprocess(self.mask_values, img, self.scale, is_mask=False,binary=self.binary)
+        mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True,binary=self.binary)
 
         return {
             'image': torch.as_tensor(img.copy()).float().contiguous(),  # 1(C),H,W,
@@ -159,8 +163,8 @@ class CarvanaDataset(BasicDataset):
     def __init__(self, images_dir, mask_dir, scale=1):
         super().__init__(images_dir, mask_dir, scale, mask_suffix='_mask')
 class PhC_U373Dataset(BasicDataset):
-    def __init__(self, images_dir, mask_dir, scale=1):
-        super().__init__(images_dir, mask_dir, scale,mask_suffix='man_seg',img_prefix='t',mask_limit=True)
+    def __init__(self, images_dir, mask_dir, scale=1,binary=False):
+        super().__init__(images_dir, mask_dir, scale,mask_suffix='man_seg',img_prefix='t',mask_limit=True,binary=binary)
 class Elastic_Deformation (object):
     def __init__(self,size=3,std=10,p=1):
         self.size=size
@@ -215,13 +219,13 @@ if __name__ =="__main__":
     # res=np.concatenate(list(res))
     # print(np.unique(res,axis=0))
 
-    dataset=PhC_U373Dataset('../data/imgs/01','../data/masks/01',0.5,transform=aug_transformation())
+    dataset=PhC_U373Dataset('../data/imgs/01','../data/masks/01',0.5)
     data=next(iter(dataset))
     image=torch.squeeze(data['image'])
     mask=data['mask']
     print(image.size(), mask.size())
     show_img = np.uint8(image.numpy() * 255)
-    show_mask = np.uint8((mask.numpy() / 8) * 255)
+    show_mask = np.uint8((mask.numpy() / 1) * 255)
 
-    Image.fromarray(show_img).save("../predicted_mask/deformed_img_test.png")
-    Image.fromarray(show_mask).save("../predicted_mask/deformed_mask_test.png")
+    Image.fromarray(show_img).save("../predicted_mask/img_test.png")
+    Image.fromarray(show_mask).save("../predicted_mask/mask_test.png")
