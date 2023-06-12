@@ -25,7 +25,7 @@ def unified_dataset(dir_img,dir_mask,img_scale,get_mask_val=False):
     # since have 2 folders containing different datasets
     dataset = ConcatDataset([dataset1,dataset2])
 
-    return dataset if not get_mask_val else dataset, mask_vals
+    return dataset if not get_mask_val else (dataset, mask_vals)
 def aug_transformation(deform=0.5,rotate=0.5, shift_p=0.5,shift_wh:tuple=(0.1,0.1)):
     transform_list=[]
 
